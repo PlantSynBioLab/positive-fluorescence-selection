@@ -275,7 +275,7 @@ ggcyto(data = fs[], mapping = aes(x = !!FSC_A , y = !!SSC_A)) +
 The first step in our data analysis is to compensate for any spillover of each fluorescent protein used into channels used to measure another fluorescent protein. For example, it is often the case that RFP is measured in the FL3 (YL1 in some cytometers) channel, but it also contributes some signal in the FL1 (BL1 in some cytometers), where GFP is measured, therefore, cells expressing high levels of RFP will have inflated GFP measurements. In some cases, the emission spectra and measurement channels of the two fluorescent proteins may not result in any spillover. To determine the amount of spillover and calculate a compensation matrix, control samples that express each fluorescent protein individually and also samples with no fluorescent proteins are required. 
 
 
-TODO - explain low transformation efficiency. Only a small fraction of cells are likely to express the fluorescent protein within a population of transfected cells, so we need to first identify this cell population and determine the spillover in just this population. Some cytometers facilitate compensation in the provided software, but may not provide an option to select a population. 
+Only a small fraction of cells are likely to express the fluorescent protein within a population of transfected cells, so we need to first identify this cell population and determine the spillover in just this population. Some cytometers facilitate compensation in the provided software, but may not provide an option to select a population. 
 
 
 Functions are provided in the R/bioconductor flowCore package to automate generation of the spillover matrix used to compensate datasets for fluorescent spillover.
@@ -283,10 +283,6 @@ Functions are provided in the R/bioconductor flowCore package to automate genera
 For some cytometers, the name of the spillover matrix may be listed as `$SPILLOVER` or `$SPILL`. To determine which keyword to use, the following line will return all of the keywords associated with a sample: `keyword(fs[[1]])`. From there, we can look for keywords like `$SPILL` or `$SPILLOVER.` 
 
 In the case of our dataset cytometer software generates a compensation matrix for you using a wizard or similar algorithm, you can likely extract this from the flowSet and use it to compensate with the following:
-
-TODO - how to manually compensate?
-TODO - this is what it looks like without compensation
-
 
 In our example dataset, RFP is used to indicate transfected cells, while GFP acts as a reporter gene for our different constructs.
 
@@ -307,8 +303,6 @@ fs.comp <- fsApply(fs,function(frame){
 ```
 
 Next we will log transform the data. Log transformation can be used to address skewness in datasets to achieve a near-normal distribution or linearity. Log transformation can make the data easier to interpret as it may make certain relationships more apparent. Some cytometers may have the FCS files already log transformed. Look for a `$TRANSFORM` keyword with `keyword(flowSet[[1]])` to make this determination. Keep in mind that your cytometer may use a slightly different keyword. 
-
-TODO - what would it look like if the data is already transformed and do we need to do the following step?
 
 ```{r message = FALSE, warning = FALSE}
 
@@ -360,7 +354,7 @@ fs.log <- fsApply(x = fs.log, FUN = function(frame){
 
 ## Expression Quantification
 
-To begin quantifying changes in reporter gene expression between our constructs, we first need to identify the live transformed cells based on their expression of red fluorescent protein (RFP) from the pBeaconRFP vector. TODO - dead cells should not fluoresce. TODO - in order to id this pop of cells, we need a non-transformed control sample. 
+To begin quantifying changes in reporter gene expression between our constructs, we first need to identify the live transformed cells based on their expression of red fluorescent protein (RFP) from the pBeaconRFP vector. Dead cells should not fluoresce. In order to identify the transformed fluorescent population of cells, we need a non-transformed control sample to set a threshold of fluorescence. 
 
 We can plot one of our samples on a FL1.A (GFP) vs. FL3.A (RFP) plot to visualize our cell populations. In our example dataset, we can see two distinct cell populations: a GFP positive population, and a population that is positive in both GFP and RFP. There is also a third cluster of events that is likely predominantly debris and non-transformed cells as these events have relatively low GFP and RFP levels.
 
@@ -550,13 +544,9 @@ ggcyto(fs.comp.log[c(4,8)], mapping = aes( x = !!sym(GreenDetector), y = !!sym(R
 # dev.off()
 ```
 
-Next, we will backgate this population of RFP positive viable cells to a FSC.A vs. SSC.A plot to visualize all live cells. To do this, we will plot these 'RFP_high' events on a FSC.A vs SSC.A plot (AKA backgating) to determine where viable cells fall. We can draw a new gate (TODO - that encompasses 99% blah blah) around these events and define it as `viable_cells`. TODO - this helps us exclude the majority of debris from our analysis.
+Next, we will backgate this population of RFP positive viable cells to a FSC.A vs. SSC.A plot to visualize all live cells. To do this, we will plot these 'RFP_high' events on a FSC.A vs SSC.A plot (AKA backgating) to determine where viable cells fall. We can draw a new gate that encompasses 99% of the RFP-positive events and define it as `viable_cells`. This helps us exclude the majority of debris from our analysis.
 
-TODO - explain what `gate_flowclust_2D()` does
-TODO- quantile - change value to be more stringent
-
-TODO - code for transformation rate - LATER - put after cells gate
-
+To define this gate we use `gate_flowclust_2D()`, which uses a robust clustering algorithm to define populations of cells and defines an ellipse centered about that population and encompassing a certain quantile of the events in the population. Decreasing the `quantile` argument will decrease the area of the gate.
 
 ```{r message = FALSE, warning = FALSE}
 
@@ -613,7 +603,7 @@ ggcyto(fs.comp.log[c(8)], mapping = aes( x = !!FSC_A, y = !!SSC_A)) +
 
 Next we will screen out any doublets, cells that are stuck together. Cell doublets may artificially inflate measurements, so we want to remove as many doublets as possible without cutting off events/cells from the top of the distribution because those should not be doublets. If you have enough cells, it is generally better to set tighter constraints to minimize inflation of measurements.  We can begin screening out doublet events by first creating a FSC.A vs. FSC.H plot. Proper singlets should have a 1-to-1 correlation between area and height. A doublet will have roughly a 2-to-1 relationship between area and height. By drawing a gate around the events that follow this expected distribution we can exclude the majority of doublet events.  
 
-The default prediction level in the `gate_singlet()` function is set to `0.99` meaning that 1% of cells are estimated to be doublets. You can change the doublet estimation by changing the value assigned to the `prediction_level` argument in the `gate_singlet()` function. TODO - explain that ours is set to .95
+The default prediction level in the `gate_singlet()` function is set to `0.99` meaning that 1% of cells are estimated to be doublets. You can change the doublet estimation by changing the value assigned to the `prediction_level` argument in the `gate_singlet()` function. In this case we set `prediction_level = 0.9`, which generates a gate excluding the lower tail of cells with FSC-A values greater than FSC-H, and only excluding a small fraction of events in the top right with FSC-H greater than FSC-A. 
 
 ```{r message = FALSE, warning = FALSE}
 ### ------------------  Exclude Cell Doublets  ------------------ ### 
@@ -665,7 +655,7 @@ ggcyto(fs.sub.cells[8], mapping = aes( x = "FSC.A", y = "FSC.H")) +
 ```
 
 
-TODO Now we have identified the population of viable cells that we want to measure the reporter gene expression in response to our gene of interest.
+Now we have identified the population of viable cells that we want to measure the reporter gene expression in response to our gene of interest.
 
 ## Gate Red positive
 
@@ -673,9 +663,7 @@ Now we can finally get to answering the question we were after, “How does over
 
 First we will use our gates to select the viable, transformed cells. 
 
-TODO - we readjust our gate now that we have excluded the majority of debris with high autofluourescence and thus we can lower our RFP positive threshold. Explain how to adjust.
-
-TODO- transformation rate - explain that it might be fairly conservative.
+We essentially readjust our gate now that we have excluded the majority of debris with high autofluorescence and thus we can lower our RFP positive threshold. 
 
 ```{r message = FALSE, warning = FALSE}
 ### ------------------  Identify Truly Transformed Cells  ------------------ ### 
@@ -748,6 +736,7 @@ ggcyto(fs.single.cells[c(4,8)], mapping = aes( x =!!sym(GreenDetector), y = !!sy
 fs.transformed.cells <- Subset(fs.single.cells, RFP_high)
 ```
 
+We can also now calculate the transformation efficiency, which is the number of transformed cells divided by the total number of cells. 
 
 ```{r message = FALSE, warning = FALSE}
 ### ----------------- Calculate Transformation Efficiency ----------------- ### 
@@ -1078,52 +1067,5 @@ theme(
 # dev.off()
 
 
-```
-
-```{r include = FALSE}
-# # 2) Get emmeans on log10 scale
-# em <- emmeans(data.aov, "construct")
-# 
-# # 3) Back‑transform to get geometric means & 95% CI on original scale
-# #    type = "response" + transform via inverse of log10
-# em_resp <- summary(em, type = "response", infer = TRUE)
-# 
-# # 4) Compute fold‑change relative to GUS
-# gus_mean <- em_resp %>% filter(construct == "GUS") %>% pull(emmean)
-# 
-# plot_df <- em_resp %>%
-#   mutate(
-#     Fold    = emmean / gus_mean,
-#     Fold_lo = lower.CL / gus_mean,
-#     Fold_hi = upper.CL / gus_mean
-#   )
-# 
-# # suppose plot_df has construct, Fold, Fold_lo, Fold_hi
-# letters_df <- data.hsd$groups %>%
-#   as_tibble(rownames="construct") %>%
-#   dplyr::select(construct, groups)
-# 
-# plot_df2 <- plot_df %>%
-#   left_join(letters_df, by="construct")
-# 
-# # Reordering the samples for plotting
-# plot_df2$construct <- factor(plot_df2$construct, levels = relevels)
-# 
-# # 5) Plot
-# jpeg("Relative_ChangeRev.jpg", width = 1250, height = 2500, res = 500) 
-# ggplot(plot_df2, aes(x = construct, y = Fold, fill = construct)) +
-#   geom_col(color = "black", width = 0.6) +
-#   geom_errorbar(aes(ymin = Fold_lo, ymax = Fold_hi),
-#                 width = 0.1, size = 0.8) +
-#   scale_fill_manual(values = c("GUS" = "#fda732",
-#                                "GUS + IAA" = "#ef864d",
-#                                "ARF7"     = "#f9d02f")) +
-#   geom_text(aes(label=groups), vjust=-1) +
-#   ylab("Fold-change vs GUS (geometric mean)") +
-#   xlab(NULL) +
-#   theme_classic() +
-#   theme(legend.position="none",
-#         axis.text.x = element_text(angle=45, hjust=1))
-# dev.off()
 ```
 
