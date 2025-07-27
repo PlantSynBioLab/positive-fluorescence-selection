@@ -35,7 +35,7 @@ The GFP intensity in RFP-positive cells was quantified using a Sony SH800S fluor
 
 ## Getting Started
 
-Export the flow cytometry dataset as .fcs files from your flow cytometer. To set up your work space, create a directory (folder) with a name of your choosing. In this parent folder, place this R markdown document, and a create a sub folder titled "FCS_files" where you should deposit all of your .fcs files. If this script is not in the same parent folder as the FCS_files folder, you will need to set the working directory to tell R where your files are. Use `setwd(" ")` with the file path to the parent folder folder (see example below) to set the working directory. TODO - explain better: If your experiment spans across multiple multi-well plates, some of your samples may have identical file names, you should separate them with additional sub folders (i.e. 'plate A', 'plate B') or manually change the file names.  
+Export the flow cytometry dataset as .fcs files from your flow cytometer. To set up your work space, create a directory (folder) with a name of your choosing. In this parent folder, place this R markdown document, and a create a sub folder titled "FCS_files" where you should deposit all of your .fcs files. If this script is not in the same parent folder as the FCS_files folder, you will need to set the working directory to tell R where your files are. Use `setwd(" ")` with the file path to the parent folder folder (see example below) to set the working directory. If your experiment spans across multiple multi-well plates, some of your samples may have identical file names, you should separate them with additional sub folders (i.e. 'plate A', 'plate B') or manually change the file names.  
 
 First, we will install required the packages.  
 
@@ -467,7 +467,7 @@ ggcyto(fs.log[c(8)], mapping = aes( x = !!sym(GreenDetector), y = !!sym(RedDetec
 
 ## Define a live-cell gate based on positive RFP expression
 
-We can use a control sample with no transformed cells to draw a gate to define the threshold above which truly transformed and thus live cells fall. TODO - write this way - exclude 99% of non-fluorescent events. This is accomplished by drawing a horizontal gate to include only the top 1% of the brightest red fluorescent events on an FL1.A vs. FL3.A plot. Events that fall above this line in transformed samples will considered to be RFP positive. These RFP-positive events represent viable, transformed cells expressing RFP and the gene of interest from our pBeaconRFP vector. You can adjust the position of this gate by changing value of the `probs` argument in the `gate_quantile()` function. 
+We can use a control sample with no transformed cells to draw a gate to define the threshold above which truly transformed and thus live cells fall. This is accomplished by drawing a horizontal gate to include only the top 1% of the brightest red fluorescent events on an FL1.A vs. FL3.A plot and exclude 99% of non-fluorescent events. Events that fall above this line in transformed samples will considered to be RFP positive. These RFP-positive events represent viable, transformed cells expressing RFP and the gene of interest from our pBeaconRFP vector. You can adjust the position of this gate by changing value of the `probs` argument in the `gate_quantile()` function. 
 
 ```{r message = FALSE, warning = FALSE}
 ### ------------------  Identify High RFP Events ------------------ ### 
@@ -935,7 +935,7 @@ Next we can conduct a Tukey HSD post-hoc analysis to group samples that are stat
 HSD.groups <- 
 data.hsd$groups %>% as_tibble(rownames = "names") %>%
   mutate(construct = names) %>% 
-  mutate(FL1.A = mean_signal) %>% #TODO cytometer compatibility
+  mutate(FL1.A = mean_signal) %>% 
   left_join(data.hsd$means %>% 
               as_tibble(rownames = "names") %>% 
               dplyr::select(c(names)), 
