@@ -1,0 +1,949 @@
+---
+title: "Purpose of the experiment"
+author: ""
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+# Install and load the required the packages.  
+
+```{r}
+### ------------------  Installing Required Packages ------------------ ###
+
+
+# Use the following lines of code to install necessary packages (This may take approximately 5 minutes, but you should only need to install the packages once):
+
+# install.packages(c("tidyverse", "ggbeeswarm", "dplyr", "forcats", "ggridges", "agricolae", "hrbrthemes", "viridis" ,    "BiocManager", "htmltools", "cli", "fastmap", "deSolve", "Hmisc", "car"))
+
+# All of the packages below are in the Bioconductor repository
+# BiocManager::install(c('flowStats','openCyto','flowTime','ggcyto','flowCore'))
+
+# If you are prompted to update any of the packages, please do so.
+
+```
+
+Now that each required package is installed we need to load it for the current R session. 
+
+```{r setup, results = "hide", message = FALSE, warning = FALSE}
+### ------------------  Loading Required Packages ------------------ ###
+
+# List of packages
+packages <- c(
+  "flowTime", "flowCore", "flowStats", "openCyto", "ggcyto", 
+  "tidyverse", "ggbeeswarm", "dplyr", "forcats", "ggridges", 
+  "htmltools", "agricolae", "hrbrthemes", "viridis", "car"
+)
+
+
+
+# Load all packages
+lapply(packages, require, character.only = TRUE)
+
+
+```
+
+## Define an `experiment_name` and `experiment_date` to be assigned to the flowset 
+
+```{r}
+### ------------------  Setting the Experiment Name and Date  ------------------ ###
+
+
+# Set the experiment name and date
+experiment_name <- ""  # Experiment Name
+
+experiment_date <- "" # Experiment Date
+
+```
+
+## Import the raw data
+
+*The following chunks are set to `eval=FALSE` to prevent R from running these chunks when compiling the document or running all chunks in the the document, as you only need to read the raw data initially. After initial annotation we can read in just the annotated data.* 
+
+```{r, eval=FALSE}
+### ------------------  Importing Raw FCS Data ------------------ ###
+
+# Read in the flow cytometry dataset and assign it to the object "fs".
+# The individual FCS files and no other files must be in a directory FCS_files 
+#   in the current directory, or the pattern argument in the following 
+#   function must be changed accordingly
+fs <- read.plateSet(pattern = "FCS_files", truncate_max_range = FALSE) 
+
+```
+
+## Annotate the dataset
+
+```{r, eval = FALSE}
+
+### ------------------  Defining Sample Names and Treatments ------------------ ###
+
+# Create a template data frame for annotations
+annotation_template <- data.frame(
+  name = NA,
+  construct = NA,
+  treatment = NA,
+  replicate = NA
+) [numeric(0), ]
+
+# Export the empty template data frame to a .csv file
+write.csv(annotation_template, file = "sample_info.csv", row.names = FALSE)
+```
+
+Fill in the `annotation_template` object or sample_info.csv file with your sample information either using R or Excel. 
+
+```{r, eval=FALSE}
+# Read in the annotated .csv file 
+annotation <- read.csv("sample_info.csv") 
+
+# Note: You may receive the following warning if the last line of the .csv file is not blank: "Warning: incomplete final line found by readTableHeader on 'sample_info.csv'." This is not an error and can be ignored, the .csv has still been properly imported into R.  
+
+# Note: FlowTime adds a leading "1" to the name of each .fcs file, so we will to adjust our annotations to match
+annotation <- annotation %>% mutate(name = paste0("1", name))
+
+# Apply the annotation the to dataset
+fs <- annotateFlowSet(yourFlowSet = fs, annotation_df = annotation, mergeBy = 'name')
+```
+
+We can also add additional variable metadata, which allows us to add more detailed descriptions for each variable in your annotation, to the annotated flowSet. For example, in addition to the experimental treatment variable, you may want to include specific details about each treatment such as duration, concentration, source, etc. 
+
+```{r, eval=FALSE}
+### ------------------  Add Additional Variable Metadata ------------------ ###
+
+# Add additional metadata to each variable and apply it to the annotated flowset. 
+vMd <- varMetadata(fs@phenoData) 
+vMd['construct','labelDescription'] <- "Example: All constructs are driven by the 35S promoter in the pBeaconRFP vector"
+vMd['replicate','labelDescription'] <- "Example: Each sample has three biological replicate "
+vMd['treatment','labelDescription'] <- "Example: Auxin-treated samples were treated with 100 nM indole-3-acetic acid (IAA/auxin) overnight"
+
+# Apply these annotations to the flowset
+varMetadata(fs@phenoData) <- vMd
+
+```
+
+## Save the annotated dataset
+
+```{r, eval=FALSE}
+
+### ------------------  Export the Annotated Dataset ------------------ ###
+
+# Save the annotated dataset 
+if(!dir.exists(paste0(experiment_date, "_", experiment_name))) {
+  write.flowSet(x = fs, outdir = paste0(experiment_date, "_", experiment_name))}
+
+```
+
+## Read in an Annotated Dataset
+
+```{r}
+### ------------------  Import an Already Annotated Flowset ------------------ ###
+
+# Load an annotated flowset
+fs <- read.flowSet(path = paste0(experiment_date, "_", experiment_name), phenoData = "annotation.txt")
+
+# Adding an 'id' column to our flowset that contains both construct name and replicate number to for plotting
+pData(fs)$id <- with(pData(fs),
+                     paste0(construct, "_", replicate))
+```
+
+## Cytometer setup
+
+```{r}
+### ------------------  Define Relevant Keywords ------------------ ###
+
+# Assign preset to 1 (Sony SH800S) or 2 (ThermoFisher Attune NxT)
+CytometerPreset <- 1
+
+# Conditional to set the keywords based on the CytometerPreset value
+if (CytometerPreset == 1) {
+    # For Sony SH800S fluorescence-activated cell sorter
+    RedDetector <- "FL3.A"
+    GreenDetector <- "FL1.A"
+    FSC_A <- "FSC.A"
+    SSC_A <- "SSC.A"
+} else if (CytometerPreset == 2) {
+    # For ThermoFisher Attune NxT flow cytometer
+    RedDetector <- "YL1.A"
+    GreenDetector <- "BL1.A"
+    FSC_A <- "FSC.A"
+    SSC_A <- "SSC.A"
+} else {
+    # Handle the case where CytometerPreset is not set to either 1 nor 2
+    print("Invalid CytometerPreset value. Please define the variables, `RedDetector`, `GreenDetector`, `FSC_A`, `SSC_A` as strings (ex. `RedDetector <- 'FL3.A').")
+}
+
+```
+
+## Visualize the Raw Data
+
+### Check event distributions on FSC-A~SSC-A
+
+```{r message = FALSE, warning = FALSE}
+### ------------ Plot all events of each sample (FSC.A v SSC.A) ------------ ### 
+
+# Initializes graphics device for exporting the plot as a JPEG
+# jpeg("Sample_Distribution_Check.jpg", width=8000, height=6000, res=600)
+
+# Plots all samples in the flow set on a log transformed FSC.A v SSC.A dot plot
+ggcyto(data = fs[], mapping = aes(x = !!FSC_A , y = !!SSC_A)) + 
+  # Create a density gradient
+  stat_density_2d(aes(fill = after_stat(level)), 
+                geom = "polygon")+
+  scale_fill_viridis_c(option = "plasma") +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  # Sets X and Y axis limits
+  coord_cartesian(xlim = c(5e3, 5e6), ylim = c(5e2, 5e6)) +
+  # Log transforms the X and Y axis
+  scale_x_log10() + 
+  scale_y_log10() +
+  # Add X and Y axis labels
+  labs(x = "Forward Scatter Area (FSC-A)", y = "Side Scatter Area (SSC-A)") +
+  # Define plot graphical style 
+  theme_classic() +
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  )
+
+# Closes the current graphics device. This finalizes and writes the image to disk
+# dev.off()   
+
+```
+
+
+## Apply compensation the flowSet
+
+```{r}
+
+### ------------------  Apply Compensation ------------------ ### 
+
+# Retrieve the spillover matrix
+keyword(fs[[7]])$SPILL # '$SPILL' is cytometer specific and may need to be updated.
+
+# Apply the spillover matrix to the dataset
+fs.comp <- fsApply(fs,function(frame){
+     comp <- keyword(frame)$SPILL  # '$SPILL' is cytometer specific and may need to be updated.
+     new_frame <- compensate(frame,comp)
+     new_frame
+})
+```
+
+## Apply log transformation
+
+```{r message = FALSE, warning = FALSE}
+
+### ---------------- Log Transform the Compensated Flowset ---------------- ### 
+
+# Log transformation will likely introduce NaNs (not a number) into the data when taking the log of 0. This will return a warning, but is it not an error and they will be excluded in the next step.
+
+# Log transformation of compensated flowset FSC area and height, SSC, red (FL3), and green (FL1) detectors
+fs.comp.log <- transform(fs.comp, 
+                         `FSC.A` = log(`FSC.A`),
+                         `SSC.A` = log(`SSC.A`),
+                         `FSC.H` = log(`FSC.H`),
+                         `FL1.A` = log(`FL1.A`),
+                         `FL3.A` = log(`FL3.A`))
+
+
+
+# If you're using the Attune NxT platform use the following lines instead
+# fs.comp.log <- transform(fs.comp, 
+#                          `FSC.A` = log(`FSC.A`),
+#                          `SSC.A` = log(`SSC.A`),
+#                          `FSC.H` = log(`FSC.H`),
+#                          `BL1.A` = log(`BL1.A`),
+#                          `YL1.A` = log(`YL1.A`))
+
+# Exclude NaNs from the compenstated flowset                        
+fs.comp.log <- fsApply(x = fs.comp.log, FUN = function(frame){
+  values <- exprs(frame)
+  exprs(frame) <- na.omit(values)
+  frame})
+
+```
+
+## Expression Quantification
+
+```{r message = FALSE, warning = FALSE}
+
+### Plot All Events (Compensated vs Uncompenstated) - Density (RFP vs. GFP) ###
+
+# Initializes graphics device for exporting the plot as a JPEG
+# jpeg("GFP_RFP_All_Events_Comp.jpg", width=2000, height=1800, res=300)
+
+# Creating the plot
+ggcyto(data = fs.comp.log[8], mapping = aes(x =!!sym(GreenDetector), y = !!sym(RedDetector))) + 
+  # Create a density gradient
+  stat_density_2d(aes(fill = after_stat(level)), 
+                geom = "polygon", bins = 12, n = 200)+
+  scale_fill_viridis_c(option = "plasma") +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  # Sets X and Y axis limits
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6))) +
+  # Add X and Y axis labels
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme_classic() +
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  )
+# dev.off()
+
+# jpeg("GFP_RFP_All_Events_UnComp.jpg", width=2000, height=1800, res=300)
+ggcyto(data = fs.log[8], mapping = aes(x =!!sym(GreenDetector), y = !!sym(RedDetector))) + 
+  # Create a density gradient
+  stat_density_2d(aes(fill = after_stat(level)), 
+                geom = "polygon", bins = 12, n = 200)+
+  scale_fill_viridis_c(option = "plasma") +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  # Sets X and Y axis limits
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6))) +
+  # Add X and Y axis labels
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme_classic() +
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  )
+# dev.off()
+
+### -------------- Plot All Events - Dot Plot (RFP vs. GFP) -------------- ### 
+
+## Below will generate the same plots in dot plot format 
+
+# Plot all events of a representative log transformed sample (FL1.A vs. FL3.A)
+# jpeg("GFP_RFP_All_Events_Comp_dot.jpg", width=2000, height=1800, res=300)
+ggcyto(fs.comp.log[c(8)], mapping = aes( x =!!sym(GreenDetector), y = !!sym(RedDetector))) +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  geom_point(alpha = 0.05, size = 0.5) +
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6))) +
+  theme_classic()+
+  # Add X and Y axis labels
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  )
+# dev.off()
+
+# Plot all events of a representative log transformed sample (FL1.A vs. FL3.A)
+# jpeg("GFP_RFP_All_Events_UnComp_dot.jpg", width=2000, height=1800, res=300)
+ggcyto(fs.log[c(8)], mapping = aes( x = !!sym(GreenDetector), y = !!sym(RedDetector))) +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  geom_point(alpha = 0.05, size = 0.5) +
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6))) +
+  # Add X and Y axis labels
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme_classic() +
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  )
+# dev.off()
+
+```
+
+## Define a live-cell gate based on positive RFP expression
+
+```{r message = FALSE, warning = FALSE}
+### ------------------  Identify High RFP Events ------------------ ### 
+
+## Identify control sample 
+# Get a list of sample names and the corresponding sample # to identify the control sample 
+sampleNames(fs.comp.log)
+
+# Assign the # of the control sample from the previous stuff to the 'non_trans_control' variable
+non_trans_control <- 4
+
+# Select the top 0.1% of brightest RFP events and assign them to the variable 'RFP_high'
+RFP_high <- gate_quantile(fs.comp.log[[non_trans_control]], channel = RedDetector, probs = .995, filterId = "RFP_high") 
+
+### ----------------  Plot RFP Fluorescence Intensity Gate ---------------- ### 
+
+# reorder samples so the control will plot first
+# Use the actual values in the column, not just existing factor levels
+all_ids <- unique(as.character(pData(fs.comp.log)$id))
+other_ids <- setdiff(all_ids, "Non-transformed control_1")
+
+pData(fs.comp.log)$id <- factor(pData(fs.comp.log)$id,
+                                levels = c("Non-transformed control_1", sort(other_ids)))
+
+# Initializes graphics device for exporting the plot as a JPEG
+# jpeg("RFP_High_All_Events_density.jpg", width=2000, height=1200, res=300)
+
+# Creates a plot of the control sample and a transformed sample (FL1.A vs. FL3.A) with "RFP High" gate
+ggcyto(data = fs.comp.log[c(4,8)], mapping = aes(x =!!sym(GreenDetector), y = !!sym(RedDetector))) + 
+  # Create a density gradient
+  stat_density_2d(aes(fill = after_stat(level)), 
+                geom = "polygon", bins = 12, n = 200)+
+  scale_fill_viridis_c(option = "plasma") +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  # Sets X and Y axis limits
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6))) +
+  # Add X and Y axis labels
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme_classic() +
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  )+
+  geom_gate(RFP_high)
+
+# dev.off()
+
+## Creating the same plot in a dot plot format
+
+# jpeg("RFP_High_All_Events_dot.jpg", width=2000, height=1200, res=300)
+
+# Plot the control sample (FL1.A vs. FL3.A) with a horizontal red line delineating the threshold of what is considered an RFP high event.  
+ggcyto(fs.comp.log[c(4,8)], mapping = aes( x = !!sym(GreenDetector), y = !!sym(RedDetector))) +  
+  facet_wrap(~id) +  
+  geom_point(alpha = 0.05, size = 0.5) + 
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6)))+
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme_classic() +
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  )+
+  geom_gate(RFP_high)
+
+# dev.off()
+```
+
+### Backgate RFP-positive events to FSC.A~SSC.A plot and define viable cells gate
+
+```{r message = FALSE, warning = FALSE}
+
+### ---------  Use RFP High Events to Define a Viable Cells Gate  --------- ### 
+
+# Use the RFP high events to define where viable cells fall on a FSC.A vs SSC.A plot
+viable_cells <- gate_flowclust_2d(Subset(fs.comp.log[[8]], RFP_high),  
+                                  xChannel = "FSC.A", yChannel = "SSC.A",
+                                  K = 1, quantile = 0.9)
+
+# Subsetting RFP high events  
+fs.sub <- Subset(fs.comp.log, RFP_high)
+
+# Plot RFP_high cells (FSC.A vs SSC.A) and export the plot as a jpg
+# jpeg("RFP_high_cells.jpg", width=2000, height=1800, res=300)
+
+ggcyto(fs.sub[c(8)], aes(x = !!FSC_A, y = !!SSC_A)) +
+  geom_point(alpha = 0.05, size = 0.5) + 
+  facet_wrap(~id) +
+  labs(x = "Forward Scatter Area (FSC-A)", y = "Side Scatter Area (SSC-A)" ) +
+  theme_classic() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    strip.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 12)
+  ) +
+  geom_gate(viable_cells, colour = '#fda53a', size = 2) # Drawing viable cells gate 
+
+# dev.off()
+
+# Plot viable cells against all events on a FSC.A vs SSC.A plot. RFP high events are colored red. 
+# jpeg("RFP_high_cells_all.jpg", width=2000, height=1800, res=300)
+
+ggcyto(fs.comp.log[c(8)], mapping = aes( x = !!FSC_A, y = !!SSC_A)) + 
+  geom_point(alpha = 0.05, size = 0.5) + 
+  facet_wrap(~id) +
+  labs(x = "Forward Scatter Area (FSC-A)", y = "Side Scatter Area (SSC-A)" ) +
+  theme_classic() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    strip.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 12)
+  ) +
+  # Plotting RFP high events on top 
+  geom_point(data = fs.sub[[8]], color = 'red', alpha = 0.05, size =   0.5)+
+  # Drawing viable cells gate
+  geom_gate(viable_cells, colour = '#fda53a', size = 2) 
+
+# dev.off()
+
+```
+
+## Define singlets gate
+
+```{r message = FALSE, warning = FALSE}
+### ------------------  Exclude Cell Doublets  ------------------ ### 
+
+# Subset viable cells   
+fs.sub.cells <- Subset(fs.comp.log, viable_cells)
+
+# Plot viable cells (FSC.A vs. FSC.H) and export plot as a .jpg file
+# jpeg("Viable_Cell_Population.jpg", width=2000, height=1800, res=300)
+
+ggcyto(fs.sub.cells[8], mapping = aes( x = "FSC.A", y = "FSC.H")) + 
+  geom_point(alpha = 0.05, size = 0.5) +
+  facet_wrap(~id) +
+  labs(x = "Forward Scatter Area (FSC-A)", y = "Side Scatter Area (SSC-A)" ) +
+  theme_classic()+
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    strip.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 12)
+    )+
+    coord_cartesian(xlim = c(10.5,14), ylim = c(9.5,13.5))
+
+# dev.off() 
+
+# Subset singlets using FSC.A vs. FSC.H, estimating 5% of cells are doublets. 
+singlets <- gate_singlet(Subset(fs.comp.log[[non_trans_control]], viable_cells), 
+                         area = "FSC.A", height = "FSC.H", prediction_level = 0.9 )
+
+# Visualize the gate around viable cell singlets (FSC.A vs. FSC.H)
+# jpeg("SingletsGate.jpg", width=2000, height=1800, res=300)
+
+ggcyto(fs.sub.cells[8], mapping = aes( x = "FSC.A", y = "FSC.H")) + 
+  facet_wrap(~id) +
+  geom_point(alpha = 0.05, size = 0.5) + 
+  labs(x = "Forward Scatter Area (FSC-A)", y = "Side Scatter Area (SSC-A)" ) +
+  theme_classic() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    strip.text = element_text(size = 14),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 12)
+    ) +
+    coord_cartesian(xlim = c(10.5,14), ylim = c(9.5,13.5))+
+    geom_gate(singlets, colour = '#0081C7', size = 1) 
+
+# dev.off()
+
+```
+
+
+## Define transformed cells gate 
+
+```{r message = FALSE, warning = FALSE}
+### ------------------  Identify Truly Transformed Cells  ------------------ ### 
+
+# Using the viable cells and singlets gates to subset the cells of interest
+fs.single.cells <- Subset(fs.sub.cells, singlets)
+
+# Using the control sample to create a gate of RFP_high cells using only viable singlets
+RFP_high <- gate_quantile(fs.single.cells[[non_trans_control]], 
+                          channel = RedDetector, probs = .995, 
+                          filterId = "RFP_high")
+
+# Initializes graphics device for exporting the plot as a JPEG
+# jpeg("TransformedCells_Gate_Density.jpg", width=2000, height=1000, res=300)
+
+# Creating the plot
+ggcyto(data = fs.single.cells[c(4,8)], mapping = aes(x =!!sym(GreenDetector), y = !!sym(RedDetector))) + 
+  # Create a density gradient
+  stat_density_2d(aes(fill = after_stat(level)), 
+                geom = "polygon", bins = 12, n = 200)+
+  scale_fill_viridis_c(option = "plasma") +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  # Sets X and Y axis limits
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6))) +
+  # Add X and Y axis labels
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme_classic() +
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  ) + 
+  geom_gate(RFP_high, colour = '#FF4251', size = 2)
+
+# dev.off()
+
+
+## Below will generate the same plot in dot plot format 
+
+# Plot all events of a representative log transformed sample (FL1.A vs. FL3.A)
+# jpeg("TransformedCells_dot.jpg", width=2000, height=1250, res=300)
+
+ggcyto(fs.single.cells[c(4,8)], mapping = aes( x =!!sym(GreenDetector), y = !!sym(RedDetector))) +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  geom_point(alpha = 0.05, size = 0.5) +
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6))) +
+  theme_classic()+
+  # Add X and Y axis labels
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  )+
+  geom_gate(RFP_high, colour = '#FF4251', size = 2)
+
+# dev.off()
+
+### ------------------  Subset Truly Transformed Cells ------------------ ### 
+
+# Subset transformed viable signlets
+fs.transformed.cells <- Subset(fs.single.cells, RFP_high)
+```
+
+## Calculate transformation efficiencies
+
+```{r message = FALSE, warning = FALSE}
+### ----------------- Calculate Transformation Efficiency ----------------- ### 
+
+# Calculate transformation efficiency for each construct 
+percent_transformed <- lapply(sampleNames(fs.single.cells), function(s) {
+  total_events <- nrow(exprs(fs.single.cells[[s]]))
+  transformed_events <- nrow(exprs(Subset(fs.single.cells[[s]], RFP_high)))
+  construct_label <- pData(fs.single.cells)[s, "construct"]
+  data.frame(
+    sample = s,
+    construct = construct_label,
+    total = total_events,
+    transformed = transformed_events,
+    percent_transformed = round(100 * transformed_events / total_events, 2)
+  )
+}) %>% bind_rows()
+
+# Calculate the mean and SE transformation rates 
+summary_df <- percent_transformed %>%
+  group_by(construct) %>%
+  summarise(
+    mean_percent = mean(percent_transformed),
+    se = sd(percent_transformed) / sqrt(n())
+  )
+# Define sample order for plotting
+summary_df$construct <- factor(summary_df$construct, levels = c(
+  "Non-transformed control",
+  "GUS",
+  "GUS + IAA",
+  "ARF7"
+))
+
+# Plot transformation efficiency and export as a JPG
+# jpeg("TransformationRates.jpg", width=1250, height=2250, res=300)
+
+ggplot(summary_df, aes(x = construct, y = mean_percent, fill = construct)) +
+  geom_col(width = 0.6) +  # bar chart
+  geom_errorbar(aes(ymin = mean_percent - se, ymax = mean_percent + se),
+                width = 0.2, size = 1, color = "gray10") +  # error bars
+  scale_fill_manual(values = c(
+    "GUS + IAA" = "#fda732",
+    "ARF7" = "#ef864d",
+    "GUS" = "#f9d02f",
+    "Non-transformed control" = "#555555"
+  )) +
+  labs(
+    x = "",
+    y = "Transformation Efficiency (%)",
+  ) +
+  theme_classic()+
+  theme(
+    legend.position = "none",
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 15),
+    axis.title.y = element_text(size = 15),
+    )
+
+# dev.off()
+
+### ------------------  Plot Only Truly Transformed Cells ------------------ ### 
+
+## Plot the final subsetted flowset 
+# Initializes graphics device for exporting the plot as a JPEG
+# jpeg("Subset_TransformedCells.jpg", width=2000, height=1800, res=300)
+
+# Creating the plot
+ggcyto(data = fs.transformed.cells[c(8)], mapping = aes(x =!!sym(GreenDetector), y = !!sym(RedDetector))) + 
+  # Create a density gradient
+  stat_density_2d(aes(fill = after_stat(level)), 
+                geom = "polygon", bins = 12, n = 200)+
+  scale_fill_viridis_c(option = "plasma") +
+  # Uses the id column for plot header
+  facet_wrap(~id) +  
+  # Sets X and Y axis limits
+  coord_cartesian(xlim = log(c(1, 0.5e5)), ylim = log(c(1, 2e6))) +
+  # Add X and Y axis labels
+  labs(x = "GFP Intensity", y = "RFP Intensity") +
+  # Define plot graphical style 
+  theme_classic() +
+  theme(
+  panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  theme(
+    strip.text = element_text(size = 14),      # plot header
+    axis.title = element_text(size = 16),      # X and Y axis labels
+    axis.text = element_text(size = 12)        # axis tick labels
+  ) 
+# dev.off()
+
+```
+
+## For generating distributions with ggridges
+
+```{r}
+### ------------------  Convert Flowset to a Dataframe ------------------ ### 
+
+# Convert flowset into a dataframe
+data <- steadyState(fs.transformed.cells, gated = TRUE)
+
+# Remove the non-transformed sample from the dataset
+data <- subset(data, !grepl("Non-transformed control", construct))
+  
+#Reordering the samples for plotting
+relevels <- c("GUS", "GUS + IAA", "ARF7") 
+data$construct <- factor(data$construct, levels = relevels)
+
+```
+
+
+```{r message = FALSE, warning = FALSE}
+
+# Create a variable that uniquely identifies each replicate
+data <- data %>%
+  mutate(
+    replicate_id = paste0(construct, "_", replicate),
+    construct = fct_rev(as.factor(construct))
+    )
+
+# Defining replicate and sample colors to use for plotting. The bottom color for each sample will be plotted on top. 
+replicate_colors <- c(
+  "GUS_1" = "#EA7750",
+  "GUS_2" = "#FF9933",
+  "GUS_3" = "#ffde55",
+  "GUS + IAA_1" = "#EA7750",
+  "GUS + IAA_2" = "#ffde55",
+  "GUS + IAA_3" = "#FF9933",
+  "ARF7_1" = "#ffde55",
+  "ARF7_2" = "#FF9933",
+  "ARF7_3" = "#EA7750"
+)
+
+# jpeg("Density_Ridges.jpg", width = 1750, height = 1000, res = 300)
+
+ggplot(data, aes(y = construct)) +
+  geom_density_ridges(
+    aes(x = as.numeric(!!sym(GreenDetector)),
+      fill = replicate_id),
+    color = "black",     # solid black outlines
+    from = 0,
+    to = 11.5
+  ) +
+  scale_fill_manual(values = alpha(replicate_colors, .7)) +
+  scale_y_discrete(expand = expansion(add = c(0, 2))) +
+  labs(x = "Log10 GFP Intensity", y = "") +
+  theme_classic() +
+  theme(
+    axis.text.y = element_text(size = 9),
+    legend.position = "none",
+    panel.border = element_rect(color = "black", fill = NA, size = 1))
+
+# dev.off()
+```
+
+## Calculate Summary Statistics
+
+```{r summary stats}
+
+replicate_means <- data %>%
+  group_by(construct, replicate) %>%
+  summarise(mean_signal = mean(!!sym(GreenDetector)), .groups = "drop")
+
+data.aov <- aov(mean_signal ~ construct, data = replicate_means)
+summary.aov <- summary(data.aov)
+summary.aov
+
+leveneTest(mean_signal ~ construct, data = replicate_means)
+# Q-Q plot of residuals
+
+# jpeg("QQplot.jpg", width = 2000, height = 2000, res = 300)
+qqnorm(residuals(data.aov))
+qqline(residuals(data.aov), col = "blue")
+
+# dev.off
+
+durbinWatsonTest(data.aov)
+
+
+data.hsd <- HSD.test(data.aov, trt = "construct", alpha = 0.01)
+data.hsd
+
+```
+
+### Tukey HSD post-hoc analysis 
+
+```{r}
+# Create a new data frame with the average FL1.A activity for each construct and its associated HSD group 
+HSD.groups <- 
+data.hsd$groups %>% as_tibble(rownames = "names") %>%
+  mutate(construct = names) %>% 
+  mutate(FL1.A = mean_signal) %>% 
+  left_join(data.hsd$means %>% 
+              as_tibble(rownames = "names") %>% 
+              dplyr::select(c(names)), 
+            by = "names") %>%
+  mutate(construct = fct_relevel(construct, "GUS", after = 0))
+```
+
+## Generate Figures
+
+With all the processing and statistics completed, we can finally get to plotting our results. We first plot our data using a violin boxplot. This offers a comprehensive view of the data distributions along with the summary statistics. 
+
+```{r}
+# Reordering the samples for plotting
+data$construct <- factor(data$construct, levels = relevels)
+
+# Plot data with a violin boxplot. mean = green, median = black
+# jpeg("Violin_Boxplot2.jpg", width = 3000, height = 3000, res = 500)
+
+ggplot(data,
+  aes(y = as.numeric(FL1.A), x = construct, fill = construct)) + 
+  geom_violin(width = .75, color = "gray20", size=.7) +
+  geom_boxplot(width = 0.25, color = "gray20", fill = 'white', size = .7, fatten = 2) +
+  stat_summary(fun = mean, geom = "crossbar", width = 0.24, color = "#AFC247", size = 0.5) +
+  scale_fill_manual(values = c("#f9d02f", "#fda732", "#ef864d")) +  # custom colors here
+  theme(legend.position = "none") +
+  ylab("Log10 GFP Intensity") +
+  xlab(" ") +
+  geom_text(data = HSD.groups, aes(label = groups), size = 6, vjust = -6, hjust = 0.5) +
+  theme_classic()+
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 15),
+    axis.title.y = element_text(size = 15),
+    panel.border = element_rect(color = "black", fill = NA, size = 1))+
+  coord_cartesian(ylim = c(-6, 13))
+# dev.off()
+
+```
+
+
+```{r}
+
+# Calculating fold change by dividing the value of the experimental group by the value of the control group
+#undoing log transformation
+data.exp <- transform(data, 
+                         `FSC.A` = exp(`FSC.A`),
+                         `SSC.A` = exp(`SSC.A`),
+                         `FSC.H` = exp(`FSC.H`),
+                         `FL1.A` = exp(`FL1.A`),
+                         `FL3.A` = exp(`FL3.A`))
+
+# Calculate the mean FL1.A for the control group
+control.mean <- data.exp %>%
+  dplyr::filter(construct == "GUS") %>%
+  summarize(gus_value = mean(FL1.A)) %>%
+  pull(gus_value)
+
+# Take the mean DR5:GFP activity of all samples
+data.mean <- aggregate(FL1.A ~ construct + replicate, data = data.exp, FUN = mean)
+
+# Calculating average fold of DR5:GFP from control group
+data.mean$FoldChange <- (data.mean$FL1.A / control.mean) 
+
+# Calculate the standard error for each construct
+data.se <- data.mean %>%
+  group_by(construct) %>%
+  summarize(SE = sd(FoldChange) / sqrt(n()))
+
+
+data.avg <- data.mean %>%
+  group_by(construct) %>%
+  summarize(FoldChange = mean(FoldChange))
+
+# Merging with standard error
+data.avg <- data.avg %>%
+  left_join(data.se, by = "construct") 
+
+
+letters_df <- data.hsd$groups %>%
+  as_tibble(rownames="construct") %>%
+  dplyr::select(construct, groups)
+
+data.final <- data.avg %>%
+  left_join(letters_df, by="construct")
+
+# Reordering the samples for plotting
+data.final$construct <- factor(data.final$construct, levels = relevels)
+
+# Plotting the data
+# jpeg("Relative_Change.jpg", width = 1250, height = 2500, res = 500) 
+
+ggplot(data.final, aes(x = construct, y = FoldChange), fill = construct) +
+  geom_bar(stat = "identity", 
+           width = 0.5, 
+           # color = "black", # for outlines
+           fill = c("#f9d02f", "#fda732", "#ef864d")) + 
+   geom_errorbar(aes(ymin = FoldChange - SE,
+                    ymax = FoldChange + SE),
+                width = 0.25,  # Adjust the width of the error bars
+                size = .75,
+                color = "grey7") +  # Error bar color
+  geom_text(aes(label = FoldChange %>% round(2)),
+            size = 4, 
+            position = position_nudge(y = 0.15),
+            vjust = ifelse(data.final$FoldChange >= 0, -0.5, -3.5)) +
+  geom_text(data = data.final,
+            aes(label = groups,
+            x = construct),
+            size = 5.5,
+            position = position_nudge(y = .3),
+            vjust = ifelse(data.final$FoldChange >= 0, -1, -3.5),
+            color = "grey7") +
+  geom_hline(yintercept = 0, 
+              color = "gray15", 
+              size = 0.5) + 
+  ylab("Fold change \n GFP activation from control") + 
+  xlab(" ") + 
+theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    panel.background = element_blank(),  # Remove panel background
+    plot.background = element_blank(),  # Remove plot background
+    panel.grid.major = element_blank(), # Remove major gridlines
+    panel.grid.minor = element_blank(), # Remove minor gridlines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),  # Rotate x-axis labels
+  ) +
+  coord_cartesian(ylim = c(0, 2.7))+
+  scale_y_continuous(breaks = seq(0, 10, by = 0.5))
+
+# dev.off()
+
+
+```
+
