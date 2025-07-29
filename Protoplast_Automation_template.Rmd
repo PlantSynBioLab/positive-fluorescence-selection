@@ -378,8 +378,8 @@ sampleNames(fs.comp.log)
 # Assign the # of the control sample from the previous stuff to the 'non_trans_control' variable
 non_trans_control <- 4
 
-# Select the top 0.1% of brightest RFP events and assign them to the variable 'RFP_high'
-RFP_high <- gate_quantile(fs.comp.log[[non_trans_control]], channel = RedDetector, probs = .995, filterId = "RFP_high") 
+# Select the top 0.1% of brightest RFP events and assign them to the variable 'RFP_events'
+RFP_events <- gate_quantile(fs.comp.log[[non_trans_control]], channel = RedDetector, probs = .995, filterId = "RFP_events") 
 
 ### ----------------  Plot RFP Fluorescence Intensity Gate ---------------- ### 
 
@@ -392,9 +392,9 @@ pData(fs.comp.log)$id <- factor(pData(fs.comp.log)$id,
                                 levels = c("Non-transformed control_1", sort(other_ids)))
 
 # Initializes graphics device for exporting the plot as a JPEG
-# jpeg("RFP_High_All_Events_density.jpg", width=2000, height=1200, res=300)
+# jpeg("RFP_events_density.jpg", width=2000, height=1200, res=300)
 
-# Creates a plot of the control sample and a transformed sample (FL1.A vs. FL3.A) with "RFP High" gate
+# Creates a plot of the control sample and a transformed sample (FL1.A vs. FL3.A) with "RFP_events" gate
 ggcyto(data = fs.comp.log[c(4,8)], mapping = aes(x =!!sym(GreenDetector), y = !!sym(RedDetector))) + 
   # Create a density gradient
   stat_density_2d(aes(fill = after_stat(level)), 
@@ -415,13 +415,13 @@ ggcyto(data = fs.comp.log[c(4,8)], mapping = aes(x =!!sym(GreenDetector), y = !!
     axis.title = element_text(size = 16),      # X and Y axis labels
     axis.text = element_text(size = 12)        # axis tick labels
   )+
-  geom_gate(RFP_high)
+  geom_gate(RFP_events)
 
 # dev.off()
 
 ## Creating the same plot in a dot plot format
 
-# jpeg("RFP_High_All_Events_dot.jpg", width=2000, height=1200, res=300)
+# jpeg("RFP_events_dot.jpg", width=2000, height=1200, res=300)
 
 # Plot the control sample (FL1.A vs. FL3.A) with a horizontal red line delineating the threshold of what is considered an RFP high event.  
 ggcyto(fs.comp.log[c(4,8)], mapping = aes( x = !!sym(GreenDetector), y = !!sym(RedDetector))) +  
@@ -438,7 +438,7 @@ ggcyto(fs.comp.log[c(4,8)], mapping = aes( x = !!sym(GreenDetector), y = !!sym(R
     axis.title = element_text(size = 16),      # X and Y axis labels
     axis.text = element_text(size = 12)        # axis tick labels
   )+
-  geom_gate(RFP_high)
+  geom_gate(RFP_events)
 
 # dev.off()
 ```
@@ -450,15 +450,15 @@ ggcyto(fs.comp.log[c(4,8)], mapping = aes( x = !!sym(GreenDetector), y = !!sym(R
 ### ---------  Use RFP High Events to Define a Viable Cells Gate  --------- ### 
 
 # Use the RFP high events to define where viable cells fall on a FSC.A vs SSC.A plot
-viable_cells <- gate_flowclust_2d(Subset(fs.comp.log[[8]], RFP_high),  
+viable_cells <- gate_flowclust_2d(Subset(fs.comp.log[[8]], RFP_events),  
                                   xChannel = "FSC.A", yChannel = "SSC.A",
                                   K = 1, quantile = 0.9)
 
 # Subsetting RFP high events  
-fs.sub <- Subset(fs.comp.log, RFP_high)
+fs.sub <- Subset(fs.comp.log, RFP_events)
 
-# Plot RFP_high cells (FSC.A vs SSC.A) and export the plot as a jpg
-# jpeg("RFP_high_cells.jpg", width=2000, height=1800, res=300)
+# Plot RFP_events (FSC.A vs SSC.A) and export the plot as a jpg
+# jpeg("RFP_events_cells.jpg", width=2000, height=1800, res=300)
 
 ggcyto(fs.sub[c(8)], aes(x = !!FSC_A, y = !!SSC_A)) +
   geom_point(alpha = 0.05, size = 0.5) + 
@@ -504,12 +504,12 @@ ggcyto(fs.comp.log[c(8)], mapping = aes( x = !!FSC_A, y = !!SSC_A)) +
 ### ------------------  Exclude Cell Doublets  ------------------ ### 
 
 # Subset viable cells   
-fs.sub.cells <- Subset(fs.comp.log, viable_cells)
+fs.cells <- Subset(fs.comp.log, viable_cells)
 
 # Plot viable cells (FSC.A vs. FSC.H) and export plot as a .jpg file
 # jpeg("Viable_Cell_Population.jpg", width=2000, height=1800, res=300)
 
-ggcyto(fs.sub.cells[8], mapping = aes( x = "FSC.A", y = "FSC.H")) + 
+ggcyto(fs.cells[8], mapping = aes( x = "FSC.A", y = "FSC.H")) + 
   geom_point(alpha = 0.05, size = 0.5) +
   facet_wrap(~id) +
   labs(x = "Forward Scatter Area (FSC-A)", y = "Side Scatter Area (SSC-A)" ) +
@@ -531,7 +531,7 @@ singlets <- gate_singlet(Subset(fs.comp.log[[non_trans_control]], viable_cells),
 # Visualize the gate around viable cell singlets (FSC.A vs. FSC.H)
 # jpeg("SingletsGate.jpg", width=2000, height=1800, res=300)
 
-ggcyto(fs.sub.cells[8], mapping = aes( x = "FSC.A", y = "FSC.H")) + 
+ggcyto(fs.cells[8], mapping = aes( x = "FSC.A", y = "FSC.H")) + 
   facet_wrap(~id) +
   geom_point(alpha = 0.05, size = 0.5) + 
   labs(x = "Forward Scatter Area (FSC-A)", y = "Side Scatter Area (SSC-A)" ) +
@@ -550,18 +550,18 @@ ggcyto(fs.sub.cells[8], mapping = aes( x = "FSC.A", y = "FSC.H")) +
 ```
 
 
-## Define transformed cells gate 
+## Define transformed singlet cells gate 
 
 ```{r message = FALSE, warning = FALSE}
 ### ------------------  Identify Truly Transformed Cells  ------------------ ### 
 
 # Using the viable cells and singlets gates to subset the cells of interest
-fs.single.cells <- Subset(fs.sub.cells, singlets)
+fs.single.cells <- Subset(fs.cells, singlets)
 
-# Using the control sample to create a gate of RFP_high cells using only viable singlets
-RFP_high <- gate_quantile(fs.single.cells[[non_trans_control]], 
+# Using the control sample to create a gate of RFP positive cells using only viable singlets
+RFP_singlets <- gate_quantile(fs.single.cells[[non_trans_control]], 
                           channel = RedDetector, probs = .995, 
-                          filterId = "RFP_high")
+                          filterId = "RFP_singlets")
 
 # Initializes graphics device for exporting the plot as a JPEG
 # jpeg("TransformedCells_Gate_Density.jpg", width=2000, height=1000, res=300)
@@ -587,7 +587,7 @@ ggcyto(data = fs.single.cells[c(4,8)], mapping = aes(x =!!sym(GreenDetector), y 
     axis.title = element_text(size = 16),      # X and Y axis labels
     axis.text = element_text(size = 12)        # axis tick labels
   ) + 
-  geom_gate(RFP_high, colour = '#FF4251', size = 2)
+  geom_gate(RFP_singlets, colour = '#FF4251', size = 2)
 
 # dev.off()
 
@@ -613,14 +613,14 @@ ggcyto(fs.single.cells[c(4,8)], mapping = aes( x =!!sym(GreenDetector), y = !!sy
     axis.title = element_text(size = 16),      # X and Y axis labels
     axis.text = element_text(size = 12)        # axis tick labels
   )+
-  geom_gate(RFP_high, colour = '#FF4251', size = 2)
+  geom_gate(RFP_singlets, colour = '#FF4251', size = 2)
 
 # dev.off()
 
 ### ------------------  Subset Truly Transformed Cells ------------------ ### 
 
 # Subset transformed viable signlets
-fs.transformed.cells <- Subset(fs.single.cells, RFP_high)
+fs.transformed.cells <- Subset(fs.single.cells, RFP_singlets)
 ```
 
 ## Calculate transformation efficiencies
@@ -631,7 +631,7 @@ fs.transformed.cells <- Subset(fs.single.cells, RFP_high)
 # Calculate transformation efficiency for each construct 
 percent_transformed <- lapply(sampleNames(fs.single.cells), function(s) {
   total_events <- nrow(exprs(fs.single.cells[[s]]))
-  transformed_events <- nrow(exprs(Subset(fs.single.cells[[s]], RFP_high)))
+  transformed_events <- nrow(exprs(Subset(fs.single.cells[[s]], RFP_singlets)))
   construct_label <- pData(fs.single.cells)[s, "construct"]
   data.frame(
     sample = s,
